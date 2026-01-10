@@ -2,7 +2,7 @@ use anchor_lang::prelude::*;
 use anchor_spl::token_2022::{self, Token2022, MintTo, Burn, TransferChecked};
 use anchor_spl::token_interface::{Mint, TokenAccount};
 
-declare_id!("11111111111111111111111111111111");
+declare_id!("4NDPAihZpfejxGmZjN6n7MKHeRvjuxb6JSS3CtyYrdAg");
 
 #[program]
 pub mod shield {

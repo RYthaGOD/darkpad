@@ -32,7 +32,7 @@ fn main(
 
     // Step 1: Compute the user's leaf from their secret
     // The leaf is hash(secret) - this is what's stored in the Merkle tree
-    let leaf = std::hash::poseidon::bn254::hash_1([secret]);
+    let leaf = std::hash::pedersen_hash([secret]);
 
     // Step 2: Verify Merkle membership
     // Walk up the tree using the proof path
@@ -44,9 +44,9 @@ fn main(
         // If index is 0, current is on the left
         // If index is 1, current is on the right
         current = if index == 0 {
-            std::hash::poseidon::bn254::hash_2([current, path_element])
+            std::hash::pedersen_hash([current, path_element])
         } else {
-            std::hash::poseidon::bn254::hash_2([path_element, current])
+            std::hash::pedersen_hash([path_element, current])
         };
     }
 
@@ -56,7 +56,7 @@ fn main(
     // Step 4: Compute the nullifier
     // nullifier = hash(secret, auction_id)
     // This is unique per user per auction, preventing double-bidding
-    let nullifier = std::hash::poseidon::bn254::hash_2([secret, auction_id]);
+    let nullifier = std::hash::pedersen_hash([secret, auction_id]);
 
     // Return nullifier as public output
     nullifier
@@ -69,7 +69,7 @@ fn test_single_leaf_tree() {
     let auction_id: Field = 1;
     
     // Compute leaf
-    let leaf = std::hash::poseidon::bn254::hash_1([secret]);
+    let leaf = std::hash::pedersen_hash([secret]);
     
     // Build a trivial tree where we hash up with zeros
     // This simulates a single-user whitelist
@@ -78,7 +78,7 @@ fn test_single_leaf_tree() {
     let path_indices: [u1; TREE_DEPTH] = [0; TREE_DEPTH];
     
     for i in 0..TREE_DEPTH {
-        current = std::hash::poseidon::bn254::hash_2([current, path_elements[i]]);
+        current = std::hash::pedersen_hash([current, path_elements[i]]);
     }
     let root = current;
     
@@ -86,7 +86,6 @@ fn test_single_leaf_tree() {
     let nullifier = main(root, auction_id, secret, path_elements, path_indices);
     
     // Verify nullifier is deterministic
-    let expected_nullifier = std::hash::poseidon::bn254::hash_2([secret, auction_id]);
+    let expected_nullifier = std::hash::pedersen_hash([secret, auction_id]);
     assert(nullifier == expected_nullifier, "Nullifier mismatch");
 }
-

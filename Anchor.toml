@@ -3,8 +3,8 @@ seeds = false
 skip-lint = false
 
 [programs.localnet]
-shield = "11111111111111111111111111111111"
-launchpad = "22222222222222222222222222222222"
+shield = "4NDPAihZpfejxGmZjN6n7MKHeRvjuxb6JSS3CtyYrdAg"
+launchpad = "nkTrpnT1DMqyA2LZNCTqAPCLHiv2Zkf1QjhAA57kfG5"
 
 [registry]
 url = "https://api.apr.dev"
