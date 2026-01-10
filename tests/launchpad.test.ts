@@ -154,7 +154,7 @@ describe("launchpad", () => {
         const paymentVaultKeypair = Keypair.generate();
         const projectVaultKeypair = Keypair.generate();
 
-        const endTime = new anchor.BN(Math.floor(Date.now() / 1000) + 3600); // 1 hour from now
+        const endTime = new anchor.BN(Math.floor(Date.now() / 1000) + 3); // 3 seconds from now
         const tokenSupply = new anchor.BN(100000 * LAMPORTS_PER_SOL);
 
         const authorityProjectAccount = await getOrCreateAssociatedTokenAccount(
@@ -178,14 +178,41 @@ describe("launchpad", () => {
                 authority: authority.publicKey,
                 paymentMint: paymentMint,
                 projectMint: projectMint,
-                paymentVault: paymentVaultKeypair.publicKey,
-                projectVault: projectVaultKeypair.publicKey,
-                authorityProjectAccount: authorityProjectAccount.address,
                 auction: auction,
                 tokenProgram: TOKEN_2022_PROGRAM_ID,
                 systemProgram: SystemProgram.programId,
             })
-            .signers([paymentVaultKeypair, projectVaultKeypair])
+            .rpc();
+
+        // Initialize Vaults
+        await program.methods
+            .initializeVaults()
+            .accounts({
+                authority: authority.publicKey,
+                auction: auction,
+                paymentMint: paymentMint,
+                projectMint: projectMint,
+                paymentVault: paymentVaultKeypair.publicKey,
+                projectVault: projectVaultKeypair.publicKey,
+                tokenProgram: TOKEN_2022_PROGRAM_ID,
+                systemProgram: SystemProgram.programId,
+            })
+            .signers([authority.payer, paymentVaultKeypair, projectVaultKeypair])
+            .rpc();
+
+        // Fund the auction
+        // Transfer project tokens from authority to project vault
+        await program.methods
+            .fundAuction(tokenSupply)
+            .accounts({
+                authority: authority.publicKey,
+                auction: auction,
+                projectMint: projectMint,
+                projectVault: projectVaultKeypair.publicKey,
+                authorityProjectAccount: authorityProjectAccount.address,
+                tokenProgram: TOKEN_2022_PROGRAM_ID,
+            })
+            .signers([authority.payer])
             .rpc();
 
         const auctionAccount = await program.account.auction.fetch(auction);
@@ -223,6 +250,7 @@ describe("launchpad", () => {
                 paymentVault: paymentVault,
                 userPaymentAccount: userPaymentAccount,
                 userBid: userBid,
+                verifierProgram: new PublicKey("EL25TkoP8zcMcThDRn6ufsyN8HPjgxs6LPferAmoSURH"),
                 tokenProgram: TOKEN_2022_PROGRAM_ID,
                 systemProgram: SystemProgram.programId,
             })
@@ -258,6 +286,9 @@ describe("launchpad", () => {
     });
 
     it("Ends the auction", async () => {
+        // Wait for 4 seconds to ensure auction end time has passed
+        await new Promise((resolve) => setTimeout(resolve, 4000));
+
         // Wait for auction to end (in real tests, you'd fast-forward time)
         // For this test, we manually end by calling with authority
 
@@ -288,14 +319,44 @@ describe("launchpad", () => {
 
             // Set clearing price at bid amount
             const clearingPrice = new anchor.BN(bidAmount);
+            const totalRaised = new anchor.BN(bidAmount); // Mock total raised
+
+            // Create Treasury ATA
+            const treasuryPubkey = new PublicKey("AvDqGDF3wnoEnV4b5QgCikxtg6WxJ37UESLZuJXHv8s3");
+            const treasuryAta = await getOrCreateAssociatedTokenAccount(
+                provider.connection,
+                (provider.wallet as anchor.Wallet).payer,
+                paymentMint,
+                treasuryPubkey,
+                true, // allowOwnerOffCurve (it's a system account so fine)
+                "confirmed",
+                { commitment: "confirmed" },
+                TOKEN_2022_PROGRAM_ID
+            );
 
             await program.methods
-                .settleAuction(clearingPrice)
+                .settleAuction(clearingPrice, totalRaised)
                 .accounts({
                     authority: authority.publicKey,
                     auction: auction,
+                    protocolTreasury: treasuryAta.address,
+                    paymentMint: paymentMint,
+                    paymentVault: paymentVault,
+                    tokenProgram: TOKEN_2022_PROGRAM_ID,
                 })
                 .rpc();
+
+            // Verify fee deduction
+            const treasuryBalance = await getAccount(
+                provider.connection,
+                treasuryAta.address,
+                "confirmed",
+                TOKEN_2022_PROGRAM_ID
+            );
+            // Fee = 1.5% of bidAmount
+            const expectedFee = Number(bidAmount) * 150 / 10000;
+            expect(Number(treasuryBalance.amount)).to.equal(expectedFee);
+            console.log("Treasury received fee:", Number(treasuryBalance.amount) / LAMPORTS_PER_SOL);
 
             const settledAuction = await program.account.auction.fetch(auction);
             expect(settledAuction.clearingPrice.toNumber()).to.equal(bidAmount);

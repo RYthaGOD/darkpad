@@ -2,7 +2,7 @@ use anchor_lang::prelude::*;
 use anchor_spl::token_2022::{self, Token2022, MintTo, Burn, TransferChecked};
 use anchor_spl::token_interface::{Mint, TokenAccount};
 
-declare_id!("4NDPAihZpfejxGmZjN6n7MKHeRvjuxb6JSS3CtyYrdAg");
+declare_id!("5atx48YYJdXVuXFyEkW2kzHb7K3BhLDh7eab5cqovs9m");
 
 #[program]
 pub mod shield {
@@ -14,12 +14,20 @@ pub mod shield {
         let vault_state = &mut ctx.accounts.vault_state;
         vault_state.authority = ctx.accounts.authority.key();
         vault_state.jito_mint = ctx.accounts.jito_mint.key();
-        vault_state.cjito_mint = ctx.accounts.cjito_mint.key();
-        vault_state.vault = ctx.accounts.vault.key();
         vault_state.total_deposited = 0;
         vault_state.bump = ctx.bumps.vault_state;
 
-        msg!("Shield Vault initialized");
+        msg!("Shield Vault State initialized");
+        Ok(())
+    }
+
+    /// Initialize the Shield Mints and Vaults
+    pub fn initialize_vaults(ctx: Context<InitializeVaults>) -> Result<()> {
+        let vault_state = &mut ctx.accounts.vault_state;
+        vault_state.cjito_mint = ctx.accounts.cjito_mint.key();
+        vault_state.vault = ctx.accounts.vault.key();
+        
+        msg!("Shield Mints and Vaults initialized");
         Ok(())
     }
 
@@ -115,28 +123,8 @@ pub struct Initialize<'info> {
     #[account(mut)]
     pub authority: Signer<'info>,
 
-    /// The JitoSOL mint (or mock mint for testing)
-    pub jito_mint: InterfaceAccount<'info, Mint>,
-
-    /// The cJitoSOL mint - created by this program
-    #[account(
-        init,
-        payer = authority,
-        mint::decimals = 9,
-        mint::authority = vault_state,
-        mint::token_program = token_program,
-    )]
-    pub cjito_mint: InterfaceAccount<'info, Mint>,
-
-    /// Vault to hold JitoSOL
-    #[account(
-        init,
-        payer = authority,
-        token::mint = jito_mint,
-        token::authority = vault_state,
-        token::token_program = token_program,
-    )]
-    pub vault: InterfaceAccount<'info, TokenAccount>,
+    /// The JitoSOL mint
+    pub jito_mint: Box<InterfaceAccount<'info, Mint>>,
 
     /// Vault state PDA
     #[account(
@@ -146,7 +134,45 @@ pub struct Initialize<'info> {
         seeds = [b"vault_state", jito_mint.key().as_ref()],
         bump,
     )]
-    pub vault_state: Account<'info, VaultState>,
+    pub vault_state: Box<Account<'info, VaultState>>,
+
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct InitializeVaults<'info> {
+    #[account(mut)]
+    pub authority: Signer<'info>,
+
+    #[account(
+        mut,
+        seeds = [b"vault_state", jito_mint.key().as_ref()],
+        bump = vault_state.bump,
+        constraint = vault_state.authority == authority.key(),
+    )]
+    pub vault_state: Box<Account<'info, VaultState>>,
+
+    pub jito_mint: Box<InterfaceAccount<'info, Mint>>,
+
+    /// The cJitoSOL mint - created by this program
+    #[account(
+        init,
+        payer = authority,
+        mint::decimals = 9,
+        mint::authority = vault_state,
+        mint::token_program = token_program,
+    )]
+    pub cjito_mint: Box<InterfaceAccount<'info, Mint>>,
+
+    /// Vault to hold JitoSOL
+    #[account(
+        init,
+        payer = authority,
+        token::mint = jito_mint,
+        token::authority = vault_state,
+        token::token_program = token_program,
+    )]
+    pub vault: Box<InterfaceAccount<'info, TokenAccount>>,
 
     pub token_program: Program<'info, Token2022>,
     pub system_program: Program<'info, System>,
@@ -162,7 +188,7 @@ pub struct Deposit<'info> {
         seeds = [b"vault_state", jito_mint.key().as_ref()],
         bump = vault_state.bump,
     )]
-    pub vault_state: Account<'info, VaultState>,
+    pub vault_state: Box<Account<'info, VaultState>>,
 
     pub jito_mint: InterfaceAccount<'info, Mint>,
 
@@ -208,7 +234,7 @@ pub struct Withdraw<'info> {
         seeds = [b"vault_state", jito_mint.key().as_ref()],
         bump = vault_state.bump,
     )]
-    pub vault_state: Account<'info, VaultState>,
+    pub vault_state: Box<Account<'info, VaultState>>,
 
     pub jito_mint: InterfaceAccount<'info, Mint>,
 

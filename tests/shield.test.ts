@@ -97,9 +97,19 @@ describe("shield", () => {
             .accounts({
                 authority: authority.publicKey,
                 jitoMint: jitoMint,
+                vaultState: vaultState,
+                systemProgram: SystemProgram.programId,
+            })
+            .rpc();
+
+        await program.methods
+            .initializeVaults()
+            .accounts({
+                authority: authority.publicKey,
+                vaultState: vaultState,
+                jitoMint: jitoMint,
                 cjitoMint: cjitoMintKeypair.publicKey,
                 vault: vaultKeypair.publicKey,
-                vaultState: vaultState,
                 tokenProgram: TOKEN_2022_PROGRAM_ID,
                 systemProgram: SystemProgram.programId,
             })

@@ -25,7 +25,8 @@ A bot-resistant token launchpad on Solana using **Noir ZK proofs** for private p
 launchpad/
 ├── programs/
 │   ├── shield/           # JitoSOL <-> cJitoSOL wrapper
-│   └── launchpad/        # Darkpool auction logic
+│   ├── launchpad/        # Darkpool auction logic
+│   └── verifier/         # On-Chain ZK Proof Verifier (New V2)
 ├── circuits/
 │   └── check_eligibility/ # Noir ZK circuit for anonymous whitelist
 ├── scripts/
@@ -60,7 +61,7 @@ avm install latest && avm use latest
 # Build Noir circuits
 cd circuits/check_eligibility && nargo compile
 
-# Build Solana programs
+# Build Solana programs (Includes verifier)
 anchor build
 ```
 
@@ -77,8 +78,9 @@ anchor test
 ## Privacy Model
 
 1. **Identity Privacy**: Users prove whitelist membership via Merkle proof without revealing their wallet address
-2. **Bid Privacy (V1)**: Bids are committed as `Hash(amount + salt)` - revealed after auction
-3. **Nullifier**: `Hash(secret + auction_id)` prevents double-bidding while preserving anonymity
+2. **On-Chain Verification (V2)**: The `verifier` program validates ZK proofs on-chain, ensuring trustless execution.
+3. **Bid Privacy**: Bids are committed as `Hash(amount + salt)` - revealed after auction
+4. **Nullifier**: `Hash(secret + auction_id)` prevents double-bidding while preserving anonymity
 
 ## License
 

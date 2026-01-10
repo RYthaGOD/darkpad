@@ -1,7 +1,8 @@
 [workspace]
 members = [
     "programs/shield",
-    "programs/launchpad"
+    "programs/launchpad",
+    "programs/verifier"
 ]
 resolver = "2"
 
