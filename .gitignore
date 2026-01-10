@@ -1,0 +1,40 @@
+# Darkpool Launchpad
+
+# Build artifacts
+target/
+node_modules/
+dist/
+
+# Anchor
+.anchor/
+test-ledger/
+
+# Noir
+circuits/**/target/
+circuits/**/Prover.toml
+circuits/**/Verifier.toml
+
+# Environment
+.env
+.env.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Test
+coverage/
+.nyc_output/
+
+# Generated
+mock-jitosol.json
