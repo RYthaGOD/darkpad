@@ -66,7 +66,7 @@ pub mod shield {
 
         // Update state
         let vault_state = &mut ctx.accounts.vault_state;
-        vault_state.total_deposited = vault_state.total_deposited.checked_add(amount).unwrap();
+        vault_state.total_deposited = vault_state.total_deposited.checked_add(amount).ok_or(ShieldError::AmountTooSmall)?;
 
         msg!("Deposited {} JitoSOL, minted {} cJitoSOL", amount, amount);
         Ok(())
@@ -107,7 +107,7 @@ pub mod shield {
 
         // Update state
         let vault_state = &mut ctx.accounts.vault_state;
-        vault_state.total_deposited = vault_state.total_deposited.checked_sub(amount).unwrap();
+        vault_state.total_deposited = vault_state.total_deposited.checked_sub(amount).ok_or(ShieldError::AmountTooSmall)?;
 
         msg!("Burned {} cJitoSOL, withdrew {} JitoSOL", amount, amount);
         Ok(())

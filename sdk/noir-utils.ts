@@ -63,10 +63,11 @@ export function generateSalt(): Uint8Array {
     if (typeof crypto !== "undefined" && crypto.getRandomValues) {
         crypto.getRandomValues(salt);
     } else {
-        // Node.js fallback
-        for (let i = 0; i < 32; i++) {
-            salt[i] = Math.floor(Math.random() * 256);
-        }
+        // Node.js fallback using crypto module
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const nodeCrypto = require("crypto");
+        const randomBytes = nodeCrypto.randomBytes(32);
+        salt.set(randomBytes);
     }
     return salt;
 }

@@ -270,6 +270,7 @@ pub mod launchpad {
         }
 
         auction.clearing_price = clearing_price;
+        auction.total_raised = total_raised;
         auction.status = AuctionStatus::Settled;
 
         msg!("Auction settled at clearing price: {}", clearing_price);
@@ -297,14 +298,20 @@ pub mod launchpad {
             user_bid.is_winner = true;
             
             // Calculate token allocation:
-            // Each winner gets: (their_bid / total_winning_bids) * token_supply
-            // For uniform clearing price model: tokens = (clearing_price / total_committed) * token_supply
-            // Using token_supply (original) not vault.amount (remaining) to ensure correct allocation
-            let tokens_to_send = auction.token_supply
-                .checked_mul(auction.clearing_price)
-                .ok_or(ErrorCode::MathOverflow)?
-                .checked_div(auction.total_committed.max(1))
+            // Each winner gets: (token_supply / num_winners)
+            // num_winners = total_raised / clearing_price
+            // so tokens = token_supply * clearing_price / total_raised
+            // Perform calculation in u128 to avoid overflow
+            // tokens = (token_supply as u128 * clearing_price as u128) / total_raised as u128
+            let numerator = (auction.token_supply as u128)
+                .checked_mul(auction.clearing_price as u128)
                 .ok_or(ErrorCode::MathOverflow)?;
+            
+            let tokens_u128 = numerator
+                .checked_div(auction.total_raised.max(1) as u128)
+                .ok_or(ErrorCode::MathOverflow)?;
+                
+            let tokens_to_send = u64::try_from(tokens_u128).map_err(|_| ErrorCode::MathOverflow)?;
             
             // Ensure we don't send more than available in vault
             let tokens_to_send = tokens_to_send.min(ctx.accounts.project_vault.amount);
@@ -662,6 +669,7 @@ pub struct Auction {
     pub total_bids: u64,
     pub total_revealed: u64,       // Count of revealed bids
     pub total_committed: u64,
+    pub total_raised: u64,         // Total amount from winning bids (set in settle)
     pub token_supply: u64,         // Total tokens for sale
     pub bump: u8,
 }
