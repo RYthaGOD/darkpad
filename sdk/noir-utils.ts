@@ -9,14 +9,38 @@
 // 3. Generate Noir proofs using noir_wasm
 
 import { keccak256 } from "js-sha3";
+import { buildPoseidon, Poseidon } from "circomlibjs";
+
+// Cached Poseidon instance
+let poseidonInstance: Poseidon | null = null;
 
 /**
- * Simple Poseidon hash simulation for JavaScript
- * In production, use actual Poseidon implementation from noir_wasm
+ * Initialize and cache the Poseidon hasher
+ * Must be called before using poseidonHash
+ */
+export async function initPoseidon(): Promise<void> {
+    if (!poseidonInstance) {
+        poseidonInstance = await buildPoseidon();
+    }
+}
+
+/**
+ * Poseidon hash using circomlibjs (BN254 compatible)
+ * This matches the Noir std::hash::poseidon implementation
  */
 export function poseidonHash(inputs: bigint[]): bigint {
-    // This is a placeholder - in production, use actual Poseidon from noir_wasm
-    // For now, we use keccak as a stand-in for testing
+    if (!poseidonInstance) {
+        throw new Error("Poseidon not initialized. Call initPoseidon() first.");
+    }
+    const hash = poseidonInstance(inputs);
+    return poseidonInstance.F.toObject(hash) as bigint;
+}
+
+/**
+ * Legacy fallback using keccak (for testing only)
+ */
+export function poseidonHashFallback(inputs: bigint[]): bigint {
+    console.warn("Using keccak fallback - not compatible with on-chain Noir verification");
     const data = inputs.map((i) => i.toString(16).padStart(64, "0")).join("");
     const hash = keccak256(Buffer.from(data, "hex"));
     return BigInt("0x" + hash);

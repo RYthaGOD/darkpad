@@ -25,6 +25,7 @@ import {
     MerkleTree,
     fieldToBytes32,
     computeLeaf,
+    initPoseidon,
 } from "./noir-utils";
 
 /**

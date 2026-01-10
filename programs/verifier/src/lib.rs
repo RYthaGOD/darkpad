@@ -1,7 +1,10 @@
 use anchor_lang::prelude::*;
-use std::marker::PhantomData;
 
 declare_id!("EL25TkoP8zcMcThDRn6ufsyN8HPjgxs6LPferAmoSURH");
+
+// Expected sizes for validation
+const MIN_PROOF_SIZE: usize = 64;  // Typical Groth16 proof is ~200 bytes
+const EXPECTED_PUBLIC_INPUTS_SIZE: usize = 96;  // 32 + 32 + 32
 
 #[program]
 pub mod verifier {
@@ -9,23 +12,32 @@ pub mod verifier {
 
     /// Verify a ZK Proof
     /// In a real implementation, this would run the Groth16 or UltraPlonk pairing checks.
-    /// For V1 architecture, we verify the interface and flow.
+    /// For V2 architecture, we validate input structure before mock verification.
     pub fn verify_proof(_ctx: Context<VerifyProof>, proof: Vec<u8>, public_inputs: Vec<u8>) -> Result<()> {
         msg!("Verifying Proof...");
-        msg!("Proof Length: {}", proof.len());
-        msg!("Public Inputs Length: {}", public_inputs.len());
+        msg!("Proof Length: {} bytes", proof.len());
+        msg!("Public Inputs Length: {} bytes", public_inputs.len());
+
+        // Input validation
+        require!(proof.len() >= MIN_PROOF_SIZE, VerifierError::InvalidProofSize);
+        require!(public_inputs.len() == EXPECTED_PUBLIC_INPUTS_SIZE, VerifierError::InvalidPublicInputs);
 
         // MOCK VERIFICATION LOGIC
-        // In reality: 
-        // 1. Deserizalize Proof
-        // 2. Deserialize VK (stored in program data or account)
-        // 3. Perform Pairing Check (Pairing::multi_miller_loop)
+        // TODO: Replace with real BN254 Groth16 verification:
+        // 1. Deserialize Proof to (A, B, C) points
+        // 2. Load Verification Key from program data
+        // 3. Perform Pairing Check: e(A, B) == e(C, vk_gamma) * e(sum(public_inputs * vk_ic), vk_delta)
         
-        if proof.is_empty() {
-             return err!(VerifierError::InvalidProof);
-        }
+        // Log public inputs for debugging
+        let merkle_root = &public_inputs[0..32];
+        let auction_key = &public_inputs[32..64];
+        let nullifier = &public_inputs[64..96];
+        
+        msg!("Merkle Root: {:?}", &merkle_root[..8]);
+        msg!("Auction Key: {:?}", &auction_key[..8]);
+        msg!("Nullifier: {:?}", &nullifier[..8]);
 
-        msg!("Proof Verification Successful (Mock)");
+        msg!("Proof Verification Successful (Mock - V2 Architecture Ready)");
         Ok(())
     }
 }
@@ -37,6 +49,10 @@ pub struct VerifyProof<'info> {
 
 #[error_code]
 pub enum VerifierError {
-    #[msg("Invalid Proof")]
+    #[msg("Invalid Proof: proof too short")]
+    InvalidProofSize,
+    #[msg("Invalid Public Inputs: expected 96 bytes")]
+    InvalidPublicInputs,
+    #[msg("Invalid Proof: verification failed")]
     InvalidProof,
 }

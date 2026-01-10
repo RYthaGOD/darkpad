@@ -54,7 +54,7 @@ pub mod launchpad {
     }
 
     /// Initialize the vaults for the auction
-    pub fn initialize_vaults(ctx: Context<InitializeVaults>) -> Result<()> {
+    pub fn initialize_vaults(_ctx: Context<InitializeVaults>) -> Result<()> {
         msg!("Auction vaults initialized");
         Ok(())
     }
@@ -101,8 +101,12 @@ pub mod launchpad {
         // V2: On-Chain Verification
         // The proof verifies membership in the Merkle tree
         // Public inputs: [merkle_root, auction_id, nullifier]
-        // For Mock, we pass empty inputs or construct real ones if needed
-        let public_inputs = vec![0u8; 96]; // Placeholder for [32 bytes root, 32 bytes auction_id, 32 bytes nullifier]
+        // V2: Construct real public inputs for the verifier
+        // Public inputs: [merkle_root (32 bytes), auction_key (32 bytes), nullifier (32 bytes)]
+        let mut public_inputs = Vec::with_capacity(96);
+        public_inputs.extend_from_slice(&auction.merkle_root);
+        public_inputs.extend_from_slice(auction.key().as_ref());
+        public_inputs.extend_from_slice(&nullifier);
         
         let cpi_program = ctx.accounts.verifier_program.to_account_info();
         let cpi_accounts = VerifyProof {
