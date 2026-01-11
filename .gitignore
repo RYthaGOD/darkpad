@@ -38,3 +38,13 @@ coverage/
 
 # Generated
 mock-jitosol.json
+protocol-treasury.json
+docs/titan_audit_report.md
+
+# Frontend
+frontend/.next/
+frontend/out/
+frontend/build/
+frontend/node_modules/
+frontend/.vercel/
+*.tsbuildinfo
