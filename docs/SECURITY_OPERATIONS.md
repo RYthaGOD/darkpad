@@ -59,7 +59,37 @@ NEXT_PUBLIC_VERIFIER_ID=EL25TkoP8zcMcThDRn6ufsyN8HPjgxs6LPferAmoSURH
 RELAYER_API_URL=https://relay.darkpad.xyz
 ```
 
-## 4. Operational Security (OpSec)
+## 4. Protocol Controls (Emergency)
+
+The Auction authority has the power to pause the protocol in case of emergency.
+
+| Instruction | Impact when Paused |
+|-------------|--------------------|
+| `toggle_pause` | Toggles the global `is_paused` flag. |
+| `place_bid` | **BLOCKED**. No new bids can be submitted. |
+| `reveal_bid` | **BLOCKED**. No bids can be revealed. |
+| `settle_auction`| **BLOCKED**. Auction cannot transition to settled state. |
+| `claim` | **BLOCKED**. No funds/tokens can be withdrawn. |
+
+### Emergency Command:
+```bash
+# Toggle pause (Requires Authority Signature)
+anchor-cli toggle_pause --auction <AUCTION_PDA>
+```
+
+---
+
+## 5. Recipient Binding Logic
+
+To prevent **Proof Malleability** (where an attacker steals a valid ZK proof and submits it with their own wallet), the system enforces **Context Binding**.
+
+1.  **Generation**: The user hashes the `recipient` address.
+2.  **ZK Input**: The `recipient_hash` is passed as a **Public Input** to the Noir circuit.
+3.  **On-Chain Verification**: The Solana program hashes the `recipient` PDA and ensures it matches the ZK public input before accepting the proof.
+
+---
+
+## 6. Operational Security (OpSec)
 
 1.  **Rotation**: If `protocol-treasury.json` is ever exposed, run `solana-keygen new` immediately and update the program authority using the old key (if possible) or migrate.
 2.  **Cold Storage**: For Mainnet, use a **Hardware Wallet** (Ledger/Trezor) for the Upgrade Authority and Treasury. Do not keep hot keys in `target/deploy`.

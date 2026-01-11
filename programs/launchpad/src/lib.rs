@@ -4,7 +4,7 @@ use anchor_spl::token_interface::{Mint, TokenAccount};
 use verifier::program::Verifier;
 use verifier::cpi::accounts::VerifyProof;
 
-declare_id!("ExBabG1pmNr6gu2u4CTfJ7kqHxqnjoi5hRRZBWaxBLe1");
+declare_id!("GNc9f7vZtJVUbnYMFKx5JWbRWM9qT7TyZKkdt5BxhqJw");
 
 // Protocol Constants
 pub const PROTOCOL_FEE_BPS: u64 = 150; // 1.5%
@@ -46,6 +46,7 @@ pub mod launchpad {
         auction.end_time = end_time;
         auction.reveal_deadline = end_time + 3600; // 1 hour reveal window
         auction.status = AuctionStatus::Active;
+        auction.is_paused = false;
         auction.token_supply = token_supply;
         auction.bump = ctx.bumps.auction;
 
@@ -62,6 +63,14 @@ pub mod launchpad {
     /// Initialize the Payment Vault
     pub fn initialize_payment_vault(_ctx: Context<InitializePaymentVault>) -> Result<()> {
         msg!("Payment vault initialized");
+        Ok(())
+    }
+
+    /// Toggle Emergency Pause
+    pub fn toggle_pause(ctx: Context<TogglePause>) -> Result<()> {
+        let auction = &mut ctx.accounts.auction;
+        auction.is_paused = !auction.is_paused;
+        msg!("Auction pause state: {}", auction.is_paused);
         Ok(())
     }
 
@@ -107,6 +116,8 @@ pub mod launchpad {
         recipient: Option<Pubkey>, // [NEW] Optional recipient (if different from signer)
     ) -> Result<()> {
         let auction = &mut ctx.accounts.auction;
+        require!(!auction.is_paused, ErrorCode::AuctionPaused);
+
         let bidder_key = ctx.accounts.bidder.key();
         
         // Determine Recipient (Default to bidder if not provided)
@@ -192,6 +203,7 @@ pub mod launchpad {
     ) -> Result<()> {
         let auction = &mut ctx.accounts.auction;
         let user_bid = &mut ctx.accounts.user_bid;
+        require!(!auction.is_paused, ErrorCode::AuctionPaused);
 
         // Check auction is in reveal phase
         require!(
@@ -264,6 +276,7 @@ pub mod launchpad {
         ctx: Context<SettleAuction>,
     ) -> Result<()> {
         let auction = &mut ctx.accounts.auction;
+        require!(!auction.is_paused, ErrorCode::AuctionPaused);
         
         require!(
             auction.status == AuctionStatus::Revealing,
@@ -279,11 +292,11 @@ pub mod launchpad {
 
         // Avoid division by zero
         let clearing_price = if token_supply > 0 {
-             total_raised
+             (total_raised as u128)
                 .checked_mul(1_000_000_000) // Scale for precision (9 decimals)
                 .ok_or(ErrorCode::MathOverflow)?
-                .checked_div(token_supply)
-                .ok_or(ErrorCode::MathOverflow)?
+                .checked_div(token_supply as u128)
+                .ok_or(ErrorCode::MathOverflow)? as u64
         } else {
             0
         };
@@ -339,6 +352,7 @@ pub mod launchpad {
     pub fn claim(ctx: Context<Claim>) -> Result<()> {
         let auction = &ctx.accounts.auction;
         let user_bid = &mut ctx.accounts.user_bid;
+        require!(!auction.is_paused, ErrorCode::AuctionPaused);
 
         require!(auction.status == AuctionStatus::Settled, ErrorCode::AuctionNotSettled);
         require!(user_bid.is_revealed, ErrorCode::BidNotRevealed);
@@ -365,6 +379,9 @@ pub mod launchpad {
 
         // Cap at vault amount (dust safety)
         let tokens_to_send = tokens_to_send.min(ctx.accounts.project_vault.amount);
+
+        // Mark as claimed BEFORE external calls (CEI Pattern)
+        user_bid.is_claimed = true;
 
         if tokens_to_send > 0 {
             let project_transfer_ctx = CpiContext::new_with_signer(
@@ -410,9 +427,6 @@ pub mod launchpad {
         }
 
         msg!("Claimed: {} Tokens. Refunded: {} cJitoSOL", tokens_to_send, refund_amount);
-
-        // Mark as claimed
-        user_bid.is_claimed = true;
 
         Ok(())
     }
@@ -630,6 +644,19 @@ pub struct EndAuction<'info> {
 }
 
 #[derive(Accounts)]
+pub struct TogglePause<'info> {
+    pub authority: Signer<'info>,
+
+    #[account(
+        mut,
+        seeds = [b"auction", auction.project_mint.as_ref()],
+        bump = auction.bump,
+        constraint = auction.authority == authority.key(),
+    )]
+    pub auction: Account<'info, Auction>,
+}
+
+#[derive(Accounts)]
 pub struct SettleAuction<'info> {
     pub authority: Signer<'info>,
 
@@ -740,6 +767,7 @@ pub struct Auction {
     pub total_committed: u64,
     pub total_raised: u64,         // Total amount from winning bids (set in settle)
     pub token_supply: u64,         // Total tokens for sale
+    pub is_paused: bool,           // Emergency Stop
     pub bump: u8,
 }
 
@@ -795,6 +823,8 @@ pub enum ErrorCode {
     InvalidPaymentMint,
     #[msg("Invalid audit status")]
     InvalidAuditStatus,
+    #[msg("Auction is paused")]
+    AuctionPaused,
 }
 
 // ============================================================================

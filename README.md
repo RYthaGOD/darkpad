@@ -8,18 +8,18 @@ Darkpad leverages **Noir Zero-Knowledge Proofs** to decouple identity from parti
 
 ## 🛡️ Titan Upgrade Features
 
-### 1. Ghost Mode (Relayer Architecture)
--   **Problem**: Legacy private pools leaked the "Payment Origin" (Payer Address).
--   **Solution**: Darkpad decouples the **Payer** (Burner Wallet) from the **Recipient** (Fresh Wallet).
+### 1. Hardened Ghost Mode (Relayer Architecture)
 -   **Security**: Implements **ZK Context Binding** (`Hash(Recipient)`) to prevent front-running and proof malleability.
+-   **Anonymity**: Full support for relayed transactions, decoupling the **Payer** from the **Recipient**.
+-   **On-Chain Verification**: [NEW] Noir ZK proofs are now verified directly on-chain via the Groth16 Verifier program.
 
-### 2. Trustless Settlement
--   **Pro-Rata Allocation**: `(Bid * Supply) / TotalRaised`. Everyone gets a fair share; no gas wars.
--   **Accumulator Pattern**: On-chain math ensures the auction settles atomically without trusted admin inputs.
+### 2. Emergency Controls & Safe Math
+-   **Emergency Pause**: Authority can pause critical instructions (`place_bid`, `reveal_bid`, `settle_auction`, `claim`) in case of logic flaws or malicious activity.
+-   **u128 Math**: All settlement and claim logic utilizes `u128` precision to prevent arithmetic overflows and ensure insolvency safety.
 
-### 3. PrivacyCash (Shield)
--   **UTXO Model**: Client-side privacy SDK using standard nullifier/commitment sets.
--   **Anonymity**: Full support for relayed transactions via `RELAYER_API_URL`.
+### 3. Trustless Settlement
+-   **Pro-Rata Allocation**: `(Bid * Supply) / TotalRaised`. Fair share distribution without gas wars.
+-   **Accumulator Pattern**: On-chain math ensures the auction settles atomically without manual admin price injection.
 
 ---
 

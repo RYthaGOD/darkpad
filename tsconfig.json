@@ -11,6 +11,12 @@
         "outDir": "./dist",
         "rootDir": "./",
         "resolveJsonModule": true,
+        "baseUrl": ".",
+        "paths": {
+            "@darkpad/sdk": [
+                "./sdk/index.ts"
+            ]
+        },
         "types": [
             "node",
             "mocha",
@@ -19,7 +25,9 @@
     },
     "include": [
         "tests/**/*",
-        "scripts/**/*"
+        "scripts/**/*",
+        "programs/**/*",
+        "sdk/**/*"
     ],
     "exclude": [
         "node_modules",

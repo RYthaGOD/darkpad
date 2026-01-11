@@ -10,7 +10,8 @@
     {
       "name": "claim",
       "docs": [
-        "Claim tokens (for winners) or refund (for losers)"
+        "Claim tokens - Pro-Rata Logic",
+        "Users get: (MyBid / TotalRaised) * TotalSupply"
       ],
       "discriminator": [
         62,
@@ -24,7 +25,7 @@
       ],
       "accounts": [
         {
-          "name": "bidder",
+          "name": "authority",
           "writable": true,
           "signer": true
         },
@@ -60,11 +61,63 @@
         },
         {
           "name": "payment_vault",
-          "writable": true
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  97,
+                  121,
+                  109,
+                  101,
+                  110,
+                  116,
+                  95,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "auction"
+              }
+            ]
+          }
         },
         {
           "name": "project_vault",
-          "writable": true
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  106,
+                  101,
+                  99,
+                  116,
+                  95,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "auction"
+              }
+            ]
+          }
         },
         {
           "name": "user_payment_account",
@@ -204,7 +257,33 @@
         },
         {
           "name": "project_vault",
-          "writable": true
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  106,
+                  101,
+                  99,
+                  116,
+                  95,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "auction"
+              }
+            ]
+          }
         },
         {
           "name": "authority_project_account",
@@ -312,19 +391,19 @@
       ]
     },
     {
-      "name": "initialize_vaults",
+      "name": "initialize_payment_vault",
       "docs": [
-        "Initialize the vaults for the auction"
+        "Initialize the Payment Vault"
       ],
       "discriminator": [
-        234,
-        84,
-        214,
-        3,
-        128,
-        195,
-        81,
-        125
+        138,
+        204,
+        160,
+        225,
+        10,
+        107,
+        215,
+        66
       ],
       "accounts": [
         {
@@ -357,26 +436,138 @@
           }
         },
         {
+          "name": "project_mint",
+          "docs": [
+            "The project mint helps derive the auction PDA key"
+          ]
+        },
+        {
           "name": "payment_mint"
+        },
+        {
+          "name": "payment_vault",
+          "docs": [
+            "Vault to hold payment tokens (PDA)"
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  97,
+                  121,
+                  109,
+                  101,
+                  110,
+                  116,
+                  95,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "auction"
+              }
+            ]
+          }
+        },
+        {
+          "name": "token_program",
+          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "initialize_project_vault",
+      "docs": [
+        "Initialize the Project Vault"
+      ],
+      "discriminator": [
+        154,
+        255,
+        208,
+        72,
+        221,
+        121,
+        104,
+        73
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "auction",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  117,
+                  99,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "project_mint"
+              }
+            ]
+          }
         },
         {
           "name": "project_mint"
         },
         {
-          "name": "payment_vault",
-          "docs": [
-            "Vault to hold payment tokens"
-          ],
-          "writable": true,
-          "signer": true
-        },
-        {
           "name": "project_vault",
           "docs": [
-            "Vault to hold project tokens"
+            "Vault to hold project tokens (PDA)"
           ],
           "writable": true,
-          "signer": true
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  106,
+                  101,
+                  99,
+                  116,
+                  95,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "auction"
+              }
+            ]
+          }
         },
         {
           "name": "token_program",
@@ -394,7 +585,11 @@
       "docs": [
         "Place a bid with ZK proof verification",
         "The proof verifies: User is in whitelist (Merkle membership) without revealing identity",
-        "The nullifier prevents double-bidding"
+        "The nullifier prevents double-bidding",
+        "Place a bid with ZK proof verification",
+        "The proof verifies: User is in whitelist (Merkle membership) without revealing identity",
+        "The nullifier prevents double-bidding",
+        "RELAYER UPDATE: Accepts separate recipient for anonymous bidding"
       ],
       "discriminator": [
         238,
@@ -442,7 +637,33 @@
         },
         {
           "name": "payment_vault",
-          "writable": true
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  97,
+                  121,
+                  109,
+                  101,
+                  110,
+                  116,
+                  95,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "auction"
+              }
+            ]
+          }
         },
         {
           "name": "user_payment_account",
@@ -514,14 +735,17 @@
         {
           "name": "deposit_amount",
           "type": "u64"
+        },
+        {
+          "name": "recipient",
+          "type": {
+            "option": "pubkey"
+          }
         }
       ]
     },
     {
       "name": "reveal_bid",
-      "docs": [
-        "Reveal a bid (V1 Mainnet - user self-reveals)"
-      ],
       "discriminator": [
         48,
         73,
@@ -607,7 +831,8 @@
     {
       "name": "settle_auction",
       "docs": [
-        "Settle auction - distribute tokens and refunds"
+        "Settle auction - Trustless Version",
+        "No manual inputs required. Logic is derived from on-chain state."
       ],
       "discriminator": [
         246,
@@ -658,23 +883,40 @@
         },
         {
           "name": "payment_vault",
-          "writable": true
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  97,
+                  121,
+                  109,
+                  101,
+                  110,
+                  116,
+                  95,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "auction"
+              }
+            ]
+          }
         },
         {
           "name": "token_program",
           "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
         }
       ],
-      "args": [
-        {
-          "name": "clearing_price",
-          "type": "u64"
-        },
-        {
-          "name": "total_raised",
-          "type": "u64"
-        }
-      ]
+      "args": []
     }
   ],
   "accounts": [
@@ -702,6 +944,60 @@
         166,
         149,
         53
+      ]
+    }
+  ],
+  "events": [
+    {
+      "name": "AuctionInitialized",
+      "discriminator": [
+        18,
+        7,
+        64,
+        239,
+        134,
+        184,
+        173,
+        108
+      ]
+    },
+    {
+      "name": "AuctionSettled",
+      "discriminator": [
+        61,
+        151,
+        131,
+        170,
+        95,
+        203,
+        219,
+        147
+      ]
+    },
+    {
+      "name": "BidPlaced",
+      "discriminator": [
+        135,
+        53,
+        176,
+        83,
+        193,
+        69,
+        108,
+        61
+      ]
+    },
+    {
+      "name": "BidRevealed",
+      "discriminator": [
+        227,
+        144,
+        125,
+        229,
+        28,
+        109,
+        18,
+        209
       ]
     }
   ],
@@ -775,6 +1071,11 @@
       "code": 6013,
       "name": "InvalidPaymentMint",
       "msg": "Invalid payment mint"
+    },
+    {
+      "code": 6014,
+      "name": "InvalidAuditStatus",
+      "msg": "Invalid audit status"
     }
   ],
   "types": [
@@ -852,6 +1153,50 @@
       }
     },
     {
+      "name": "AuctionInitialized",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "auction",
+            "type": "pubkey"
+          },
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "project_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "end_time",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "AuctionSettled",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "auction",
+            "type": "pubkey"
+          },
+          {
+            "name": "clearing_price",
+            "type": "u64"
+          },
+          {
+            "name": "total_raised",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
       "name": "AuctionStatus",
       "docs": [
         "Status of an auction"
@@ -872,6 +1217,46 @@
       }
     },
     {
+      "name": "BidPlaced",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "auction",
+            "type": "pubkey"
+          },
+          {
+            "name": "bidder",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "BidRevealed",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "auction",
+            "type": "pubkey"
+          },
+          {
+            "name": "bidder",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
       "name": "UserBid",
       "type": {
         "kind": "struct",
@@ -882,6 +1267,10 @@
           },
           {
             "name": "bidder",
+            "type": "pubkey"
+          },
+          {
+            "name": "recipient",
             "type": "pubkey"
           },
           {

@@ -1,0 +1,61 @@
+{
+  "address": "EL25TkoP8zcMcThDRn6ufsyN8HPjgxs6LPferAmoSURH",
+  "metadata": {
+    "name": "verifier",
+    "version": "0.1.0",
+    "spec": "0.1.0",
+    "description": "Created with Anchor"
+  },
+  "instructions": [
+    {
+      "name": "verify_proof",
+      "docs": [
+        "Verify a ZK Proof",
+        "This implementation uses the groth16-solana crate to perform BN254 pairing checks."
+      ],
+      "discriminator": [
+        217,
+        211,
+        191,
+        110,
+        144,
+        13,
+        186,
+        98
+      ],
+      "accounts": [
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "proof",
+          "type": "bytes"
+        },
+        {
+          "name": "public_inputs",
+          "type": "bytes"
+        }
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "InvalidProofSize",
+      "msg": "Proof too small or empty"
+    },
+    {
+      "code": 6001,
+      "name": "InvalidPublicInputs",
+      "msg": "Public inputs must be exactly 96 bytes (Root + Auction + Nullifier)"
+    },
+    {
+      "code": 6002,
+      "name": "InvalidProof",
+      "msg": "Groth16 verification failed - invalid proof or identity mismatch"
+    }
+  ]
+}

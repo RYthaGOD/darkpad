@@ -3,28 +3,33 @@
   "version": "0.1.0",
   "description": "Private Darkpool Launchpad - Bot-resistant token launches with Noir ZK proofs",
   "scripts": {
-    "build": "anchor build",
+    "build:circuits": "cd circuits/check_eligibility && nargo compile && mkdir -p ../../frontend/src && cp target/check_eligibility.json ../../frontend/src/",
+    "build:programs": "anchor build && mkdir -p frontend/src/idl && cp target/idl/*.json frontend/src/idl/",
+    "build:all": "npm run build:circuits && npm run build:programs",
+    "clean": "rm -rf target/ circuits/*/target",
+    "dev": "npm run dev --prefix frontend",
     "test": "anchor test",
-    "dev": "next dev",
-    "lint": "eslint . --ext .ts,.tsx"
+    "lint": "eslint . --ext .ts,.tsx",
+    "mint-mock": "ts-node -r tsconfig-paths/register scripts/mint-mock-jito.ts"
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.32.1",
     "@solana/spl-token": "^0.4.0",
     "@solana/web3.js": "^1.95.0",
     "circomlibjs": "^0.1.7",
-    "js-sha3": "^0.9.3",
-    "next": "14.2.0",
-    "react": "^18.3.0",
-    "react-dom": "^18.3.0"
+    "js-sha3": "^0.9.3"
   },
   "devDependencies": {
+    "@noir-lang/backend_barretenberg": "^0.36.0",
+    "@noir-lang/noir_js": "^1.0.0-beta.18",
+    "@noir-lang/types": "^1.0.0-beta.18",
     "@types/chai": "^4.3.0",
     "@types/mocha": "^10.0.0",
     "@types/node": "^20.0.0",
-    "@types/react": "^18.3.0",
     "chai": "^4.4.0",
     "ts-mocha": "^10.0.0",
+    "ts-node": "^10.9.2",
+    "tsconfig-paths": "^4.2.0",
     "typescript": "^5.4.0"
   }
 }

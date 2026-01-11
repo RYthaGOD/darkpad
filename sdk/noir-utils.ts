@@ -1,198 +1,64 @@
-/**
- * Noir Proof Generation SDK
- * Client-side utilities for generating ZK proofs using Noir
- */
+// Noir Proof Generation SDK
+import { BarretenbergBackend } from '@noir-lang/backend_barretenberg';
+import { Noir } from '@noir-lang/noir_js';
+import { CompiledCircuit } from '@noir-lang/types';
 
-// This SDK will be used to:
-// 1. Generate Merkle proofs for whitelist membership
-// 2. Compute nullifiers
-// 3. Generate Noir proofs using noir_wasm
+// Load circuit artifact
+// In a real monorepo, we might import this from a shared package
+// For now, we assume it's copied to frontend/src as part of build
+import circuitArtifact from '../../frontend/src/check_eligibility.json';
 
-import { keccak256 } from "js-sha3";
-import { buildPoseidon, Poseidon } from "circomlibjs";
+export class NoirSDK {
+    backend: BarretenbergBackend;
+    noir: Noir;
+    circuit: CompiledCircuit;
 
-// Cached Poseidon instance
-let poseidonInstance: Poseidon | null = null;
+    constructor() {
+        this.circuit = circuitArtifact as unknown as CompiledCircuit;
+        this.backend = new BarretenbergBackend(this.circuit);
+        this.noir = new Noir(this.circuit, this.backend);
+    }
 
-/**
- * Initialize and cache the Poseidon hasher
- * Must be called before using poseidonHash
- */
-export async function initPoseidon(): Promise<void> {
-    if (!poseidonInstance) {
-        poseidonInstance = await buildPoseidon();
+    async init() {
+        // Backend initialization if needed (wasm loading)
+        // Usually handled lazily or via explicit init
+    }
+
+    /**
+     * Generate a ZK proof for the eligibility circuit
+     * @param inputs Must match main.nr arguments: { root, auction_id, recipient_hash, secret, path_elements, path_indices }
+     */
+    async generateProof(inputs: any) {
+        console.log("Generating witness and proof...");
+        // Execution gives us the witness and return value
+        // Note: SDK must ensure inputs are mapped correctly to circuit abi
+        const result = await this.noir.generateFinalProof(inputs);
+
+        // result.proof is Uint8Array
+        // result.publicInputs is Map<name, string> or array of hex strings?
+        // With recent Noir JS, publicInputs are returned in the result
+        return result;
+    }
+
+    async verifyProof(proof: any) {
+        return this.noir.verifyFinalProof(proof);
     }
 }
 
-/**
- * Poseidon hash using circomlibjs (BN254 compatible)
- * This matches the Noir std::hash::poseidon implementation
- */
-export function poseidonHash(inputs: bigint[]): bigint {
-    if (!poseidonInstance) {
-        throw new Error("Poseidon not initialized. Call initPoseidon() first.");
-    }
-    const hash = poseidonInstance(inputs);
-    return poseidonInstance.F.toObject(hash) as bigint;
-}
+// Global instance
+export const noirSDK = new NoirSDK();
 
 /**
- * Legacy fallback using keccak (for testing only)
+ * Generate a randomized secret for the user (32 bytes)
  */
-export function poseidonHashFallback(inputs: bigint[]): bigint {
-    console.warn("Using keccak fallback - not compatible with on-chain Noir verification");
-    const data = inputs.map((i) => i.toString(16).padStart(64, "0")).join("");
-    const hash = keccak256(Buffer.from(data, "hex"));
-    return BigInt("0x" + hash);
-}
-
-/**
- * Compute a user's leaf from their secret
- */
-export function computeLeaf(secret: bigint): bigint {
-    return poseidonHash([secret]);
-}
-
-/**
- * Compute a nullifier for an auction
- */
-export function computeNullifier(secret: bigint, auctionId: bigint): bigint {
-    return poseidonHash([secret, auctionId]);
-}
-
-/**
- * Compute bid commitment: keccak256(amount + salt)
- */
-export function computeBidCommitment(
-    amount: bigint,
-    salt: Uint8Array
-): Uint8Array {
-    const data = new Uint8Array(40);
-    // Amount as 8-byte little-endian
-    const amountBytes = new Uint8Array(8);
-    const view = new DataView(amountBytes.buffer);
-    view.setBigUint64(0, amount, true);
-    data.set(amountBytes, 0);
-    data.set(salt, 8);
-
-    const hash = keccak256(data);
-    return new Uint8Array(Buffer.from(hash, "hex"));
-}
-
-/**
- * Generate a random salt for bid commitment
- */
-export function generateSalt(): Uint8Array {
-    const salt = new Uint8Array(32);
-    if (typeof crypto !== "undefined" && crypto.getRandomValues) {
-        crypto.getRandomValues(salt);
+export function generateSecret(): bigint {
+    const array = new Uint8Array(31); // 31 bytes to fit in field safely
+    if (typeof window !== 'undefined' && window.crypto) {
+        window.crypto.getRandomValues(array);
     } else {
-        // Node.js fallback using crypto module
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
-        const nodeCrypto = require("crypto");
-        const randomBytes = nodeCrypto.randomBytes(32);
-        salt.set(randomBytes);
+        // Node polyfill
+        require('crypto').randomFillSync(array);
     }
-    return salt;
-}
-
-/**
- * Simple Merkle Tree implementation
- */
-export class MerkleTree {
-    private leaves: bigint[];
-    private layers: bigint[][];
-
-    constructor(leaves: bigint[]) {
-        // Pad to power of 2
-        const size = Math.pow(2, Math.ceil(Math.log2(leaves.length)));
-        this.leaves = [...leaves];
-        while (this.leaves.length < size) {
-            this.leaves.push(BigInt(0));
-        }
-
-        this.layers = [this.leaves];
-        this.buildTree();
-    }
-
-    private buildTree(): void {
-        let currentLayer = this.leaves;
-        while (currentLayer.length > 1) {
-            const nextLayer: bigint[] = [];
-            for (let i = 0; i < currentLayer.length; i += 2) {
-                const left = currentLayer[i];
-                const right = currentLayer[i + 1];
-                nextLayer.push(poseidonHash([left, right]));
-            }
-            this.layers.push(nextLayer);
-            currentLayer = nextLayer;
-        }
-    }
-
-    getRoot(): bigint {
-        return this.layers[this.layers.length - 1][0];
-    }
-
-    getProof(leafIndex: number): { pathElements: bigint[]; pathIndices: number[] } {
-        const pathElements: bigint[] = [];
-        const pathIndices: number[] = [];
-
-        let index = leafIndex;
-        for (let i = 0; i < this.layers.length - 1; i++) {
-            const layer = this.layers[i];
-            const isLeft = index % 2 === 0;
-            const siblingIndex = isLeft ? index + 1 : index - 1;
-
-            pathElements.push(layer[siblingIndex] || BigInt(0));
-            pathIndices.push(isLeft ? 0 : 1);
-
-            index = Math.floor(index / 2);
-        }
-
-        return { pathElements, pathIndices };
-    }
-}
-
-/**
- * Format data for Noir circuit input
- */
-export interface NoirCircuitInput {
-    root: string;
-    auction_id: string;
-    secret: string;
-    path_elements: string[];
-    path_indices: number[];
-}
-
-export function formatForNoir(
-    root: bigint,
-    auctionId: bigint,
-    secret: bigint,
-    pathElements: bigint[],
-    pathIndices: number[],
-    treeDepth: number = 10
-): NoirCircuitInput {
-    // Pad arrays to tree depth
-    const paddedElements = [...pathElements];
-    const paddedIndices = [...pathIndices];
-    while (paddedElements.length < treeDepth) {
-        paddedElements.push(BigInt(0));
-        paddedIndices.push(0);
-    }
-
-    return {
-        root: root.toString(),
-        auction_id: auctionId.toString(),
-        secret: secret.toString(),
-        path_elements: paddedElements.map((e) => e.toString()),
-        path_indices: paddedIndices,
-    };
-}
-
-/**
- * Convert Field to bytes for Solana
- */
-export function fieldToBytes32(field: bigint): Uint8Array {
-    const hex = field.toString(16).padStart(64, "0");
-    return new Uint8Array(Buffer.from(hex, "hex"));
+    // Convert to BigInt
+    return BigInt('0x' + Buffer.from(array).toString('hex'));
 }
