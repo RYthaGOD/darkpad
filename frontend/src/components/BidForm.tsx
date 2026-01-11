@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { useAnchorWallet, useConnection, useWallet } from "@solana/wallet-adapter-react";
-import { PublicKey, LAMPORTS_PER_SOL } from "@solana/web3.js";
+import { PublicKey, LAMPORTS_PER_SOL, SystemProgram } from "@solana/web3.js";
 import { BN } from "@coral-xyz/anchor";
 import {
     getProvider,
@@ -10,6 +10,7 @@ import {
     deriveUserBidPDA,
     VERIFIER_PROGRAM_ID
 } from "../lib/program";
+import { keccak256 } from "js-sha3";
 import {
     initPoseidon,
     computeBidCommitment,
@@ -101,7 +102,13 @@ export default function BidForm({ auctionAddress, projectMint, paymentMint }: Bi
             const nullifier = computeNullifier(secret, auctionId);
             const nullifierBytes = fieldToBytes32(nullifier);
 
-            // 3. Derive accounts
+            // 3. Compute recipient binding hash
+            addLog("BINDING PROOF TO RECIPIENT...");
+            const finalRecipient = wallet.publicKey; // For now default to bidder
+            const recipientHashHex = keccak256(finalRecipient.toBuffer());
+            const recipientHash = "0x" + recipientHashHex;
+
+            // 4. Derive accounts
             const auction = new PublicKey(auctionAddress);
             const [userBid] = deriveUserBidPDA(auction, nullifierBytes);
             const paymentMintKey = new PublicKey(paymentMint);
@@ -122,7 +129,7 @@ export default function BidForm({ auctionAddress, projectMint, paymentMint }: Bi
 
             // Real ZK Proof Generation
             addLog("SYNTHESIZING ZERO-KNOWLEDGE PROOF...");
-            let proof = new Uint8Array(128).fill(0);
+            let proof = new Uint8Array(256).fill(0); // 256 for Groth16
             try {
                 const { generateProof, computeLeaf: compLeaf, MerkleTree: MT } = await import("../lib/noir-utils");
 
@@ -134,14 +141,18 @@ export default function BidForm({ auctionAddress, projectMint, paymentMint }: Bi
                 const inputs = {
                     root: "0x" + root.toString(16),
                     auction_id: auctionId.toString(),
+                    recipient_hash: recipientHash,
                     secret: secret.toString(),
                     path_elements: path.pathElements.map((p: bigint) => "0x" + p.toString(16)),
-                    path_indices: path.pathIndices
+                    path_indices: path.pathIndices,
+                    bid_amount: bidAmountLamports.toString(),
+                    salt: Array.from(salt)
                 };
 
-                addLog("EXECUTING NOIR POSEIDON CIRCUIT...");
-                proof = await generateProof(inputs);
-                addLog("GROTH16 PROOF CONSTRUCTED.");
+                addLog("EXECUTING HYBRID ZK-CIRCUIT...");
+                const result: any = await generateProof(inputs as any);
+                proof = new Uint8Array(result);
+                addLog("GROTH16 PROOF CONSTRUCTED (POSEIDON + KECCAK).");
             } catch (zkErr) {
                 console.error("ZK Generation Failed:", zkErr);
                 addLog("WARNING: ENCRYPTION FALLBACK ENGAGED.");
@@ -153,9 +164,8 @@ export default function BidForm({ auctionAddress, projectMint, paymentMint }: Bi
                     Buffer.from(proof) as any,
                     Array.from(nullifierBytes),
                     Array.from(commitment),
-                    Array.from(commitment),
                     depositAmountBN,
-                    null // Relayer Update: Recipient (Optional)
+                    null // Recipient (optional)
                 )
                 .accounts({
                     bidder: wallet.publicKey,
@@ -166,6 +176,7 @@ export default function BidForm({ auctionAddress, projectMint, paymentMint }: Bi
                     userBid: userBid,
                     verifierProgram: VERIFIER_PROGRAM_ID,
                     tokenProgram: TOKEN_2022_PROGRAM_ID,
+                    systemProgram: SystemProgram.programId,
                 } as any)
                 .rpc();
 

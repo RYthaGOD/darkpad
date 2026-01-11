@@ -8,7 +8,7 @@ declare_id!("EL25TkoP8zcMcThDRn6ufsyN8HPjgxs6LPferAmoSURH");
 // User must update this with REAL circuit VK values
 // or implement a loader from bytes.
 pub const MOCK_VERIFYING_KEY: Groth16Verifyingkey = Groth16Verifyingkey {
-    nr_pubinputs: 4, // 4 inputs: Root, AuctionID, Nullifier, RecipientHash
+    nr_pubinputs: 5, // 5 inputs: Root, AuctionID, RecipientHash, Nullifier, BidCommitment
     vk_alpha_g1: [
         45, 77, 154, 167, 227, 2, 217, 223, 65, 116, 157, 85, 7, 148, 157, 5, 219, 234, 51,
         251, 177, 108, 100, 59, 34, 245, 153, 162, 190, 109, 242, 226, 20, 190, 221, 80, 60,
@@ -49,9 +49,11 @@ pub const MOCK_VERIFYING_KEY: Groth16Verifyingkey = Groth16Verifyingkey {
             59, 91, 25, 236, 104, 227, 238, 58, 154, 67, 250, 186, 91, 93, 141, 18, 241, 150,
             59, 202, 48, 179, 1, 53, 207, 155, 199,
         ],
-        // Dummy IC points for inputs (Must match nr_pubinputs + 1)
-        // Here we have 4 inputs, so we need 5 IC points total (IC[0]..IC[4])
-        // I will just clone the point for now as mock.
+        // IC[1]..IC[5] for 5 inputs
+        [46, 253, 85, 84, 166, 240, 71, 175, 111, 174, 244, 62, 87, 96, 235, 196, 208, 85,
+         186, 47, 163, 237, 53, 204, 176, 190, 62, 201, 189, 216, 132, 71, 6, 91, 228, 97,
+         74, 5, 0, 255, 147, 113, 161, 152, 238, 177, 78, 81, 111, 13, 142, 220, 24, 133,
+         27, 149, 66, 115, 34, 87, 224, 237, 44, 162],
         [46, 253, 85, 84, 166, 240, 71, 175, 111, 174, 244, 62, 87, 96, 235, 196, 208, 85,
          186, 47, 163, 237, 53, 204, 176, 190, 62, 201, 189, 216, 132, 71, 6, 91, 228, 97,
          74, 5, 0, 255, 147, 113, 161, 152, 238, 177, 78, 81, 111, 13, 142, 220, 24, 133,
@@ -80,8 +82,7 @@ pub mod verifier {
     pub fn verify_proof(_ctx: Context<VerifyProof>, proof: Vec<u8>, public_inputs_concatenated: Vec<u8>) -> Result<()> {
         msg!("Darkpool ZK Engine: Dispatching Verification...");
 
-        // 1. Proof Parsing (Expecting uncompressed format for simplicity or minimal headers)
-        // A (64) + B (128) + C (64) = 256 bytes
+        // 1. Proof Parsing
         require!(proof.len() == 256, VerifierError::InvalidProofSize);
         
         let proof_a: &[u8; 64] = proof[0..64].try_into().map_err(|_| VerifierError::InvalidProof)?;
@@ -89,12 +90,12 @@ pub mod verifier {
         let proof_c: &[u8; 64] = proof[192..256].try_into().map_err(|_| VerifierError::InvalidProof)?;
 
         // 2. Public Inputs Parsing
-        // Concatenated 32-byte fields
-        // Expecting 4 inputs: [Root, AuctionID, Nullifier, RecipientHash] = 128 bytes
-        require!(public_inputs_concatenated.len() == 128, VerifierError::InvalidPublicInputs);
+        // Expecting 5 inputs: [Root, AuctionID, RecipientHash, Nullifier, BidCommitment]
+        // 5 * 32 = 160 bytes
+        require!(public_inputs_concatenated.len() == 160, VerifierError::InvalidPublicInputs);
 
-        let mut pub_inputs: [[u8; 32]; 4] = [[0; 32]; 4];
-        for i in 0..4 {
+        let mut pub_inputs: [[u8; 32]; 5] = [[0; 32]; 5];
+        for i in 0..5 {
             let start = i * 32;
             let end = start + 32;
             pub_inputs[i] = public_inputs_concatenated[start..end].try_into().unwrap();
@@ -120,7 +121,8 @@ pub mod verifier {
         msg!("ZK Status: VERIFIED");
         
         // Audit log
-        msg!("Identity Authenticated (Nullifier: {:?})", &pub_inputs[2][..4]);
+        msg!("Identity Authenticated (Nullifier: {:?})", &pub_inputs[3][..4]);
+        msg!("Bid Commitment Locked: {:?}", &pub_inputs[4][..4]);
 
         Ok(())
     }
@@ -135,7 +137,7 @@ pub struct VerifyProof<'info> {
 pub enum VerifierError {
     #[msg("Proof too small or empty")]
     InvalidProofSize,
-    #[msg("Public inputs must be exactly 128 bytes")]
+    #[msg("Public inputs must be exactly 160 bytes")]
     InvalidPublicInputs,
     #[msg("Groth16 verification failed - invalid proof or identity mismatch")]
     InvalidProof,

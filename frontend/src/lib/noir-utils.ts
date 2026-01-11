@@ -24,20 +24,24 @@ export async function initNoir() {
 
 /**
  * Generate a ZK Proof using Noir
- * @param inputs Map of input names to values
+ * @param inputs Map of input names to values:
+ * { root, auction_id, recipient_hash, secret, path_elements, path_indices, bid_amount, salt }
  */
 export async function generateProof(inputs: {
     root: string,
     auction_id: string,
+    recipient_hash: string,
     secret: string,
     path_elements: string[],
-    path_indices: number[]
+    path_indices: number[],
+    bid_amount: string,
+    salt: number[] | Uint8Array
 }): Promise<Uint8Array> {
     if (!noirInstance || !backendInstance) await initNoir();
     if (!noirInstance || !backendInstance) throw new Error("Failed to initialize Noir");
 
     // Step 1: Execute the circuit to get the witness
-    const { witness } = await noirInstance.execute(inputs);
+    const { witness } = await noirInstance.execute(inputs as any);
 
     // Step 2: Generate proof using the backend
     const proof = await backendInstance.generateProof(witness);

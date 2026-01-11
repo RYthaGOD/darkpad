@@ -130,17 +130,19 @@ pub mod launchpad {
         let clock = Clock::get()?;
         require!(clock.unix_timestamp < auction.end_time, ErrorCode::AuctionEnded);
 
-        // V2: On-Chain Verification & Binding
-        // Public inputs: [merkle_root (32), auction_key (32), nullifier (32), recipient_hash (32)]
-        // We BIND the recipient to the proof to prevent front-running.
-        let mut public_inputs = Vec::with_capacity(128);
+        // V3: On-Chain Verification & Sealed Bid Binding
+        // Public inputs: [merkle_root (32), auction_key (32), recipient_hash (32), nullifier (32), bid_commitment (32)]
+        // Order must match Noir circuit ABI exactly.
+        let mut public_inputs = Vec::with_capacity(160);
         public_inputs.extend_from_slice(&auction.merkle_root);
         public_inputs.extend_from_slice(auction.key().as_ref());
-        public_inputs.extend_from_slice(&nullifier);
         
-        // Hash the recipient to bind it (Standardize input to circuit)
+        // Hash the recipient to bind it
         let recipient_hash = anchor_lang::solana_program::keccak::hash(final_recipient.as_ref());
         public_inputs.extend_from_slice(recipient_hash.0.as_ref()); 
+        
+        public_inputs.extend_from_slice(&nullifier);
+        public_inputs.extend_from_slice(&bid_commitment);
         
         let cpi_program = ctx.accounts.verifier_program.to_account_info();
         let cpi_accounts = VerifyProof {
