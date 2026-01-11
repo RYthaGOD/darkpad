@@ -8,10 +8,13 @@ Darkpad leverages **Noir Zero-Knowledge Proofs** to decouple identity from parti
 
 ## 🛡️ Titan Upgrade Features
 
-### 1. Hardened Ghost Mode (Relayer Architecture)
+### 1. Hardened Ghost Mode (Institutional Privacy)
 -   **Security**: Implements **ZK Context Binding** (`Hash(Recipient)`) to prevent front-running and proof malleability.
 -   **Anonymity**: Full support for relayed transactions, decoupling the **Payer** from the **Recipient**.
--   **On-Chain Verification**: [NEW] Noir ZK proofs are now verified directly on-chain via the Groth16 Verifier program.
+-   **Hybrid Hashing**: 
+    - **Poseidon (bn254)**: For ultra-efficient ZK membership proofs.
+    - **Keccak256**: For native on-chain verification of **Sealed Bids** during the reveal phase.
+-   **On-Chain Verification**: Mandatory mandatory ZK proof validation for all bidding activity.
 
 ### 2. Emergency Controls & Safe Math
 -   **Emergency Pause**: Authority can pause critical instructions (`place_bid`, `reveal_bid`, `settle_auction`, `claim`) in case of logic flaws or malicious activity.
