@@ -12,7 +12,9 @@ test-ledger/
 # Noir
 circuits/**/target/
 circuits/**/Prover.toml
+circuits/**/Prover.toml
 circuits/**/Verifier.toml
+programs/**/vk.bin
 
 # Environment
 .env
