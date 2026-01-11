@@ -68,3 +68,15 @@ RELAYER_API_URL=https://relay.darkpad.xyz
 ---
 
 > **Note**: Verify `.gitignore` rules before adding any new JSON keypairs.
+
+## 5. Verification Log (Jan 11, 2026)
+
+| File | Status | Action Taken |
+|------|--------|--------------|
+| `protocol-treasury.json` | **FOUND** | Removed from Git. Ignored. |
+| `target/deploy/launchpad-keypair.json` | **FOUND** | Ignored by default. |
+| `target/deploy/verifier-keypair.json` | **FOUND** | Ignored by default. |
+| `programs/verifier/vk.bin` | **FOUND** | **Added to `.gitignore`**. |
+| `frontend/.env.local` | **MISSING** | **Safe**. Must be created manually. |
+
+*Audit conducted by Antigravity AI.*
