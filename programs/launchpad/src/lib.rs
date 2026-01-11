@@ -4,7 +4,7 @@ use anchor_spl::token_interface::{Mint, TokenAccount};
 use verifier::program::Verifier;
 use verifier::cpi::accounts::VerifyProof;
 
-declare_id!("GNc9f7vZtJVUbnYMFKx5JWbRWM9qT7TyZKkdt5BxhqJw");
+declare_id!("ExBabG1pmNr6gu2u4CTfJ7kqHxqnjoi5hRRZBWaxBLe1");
 
 // Protocol Constants
 pub const PROTOCOL_FEE_BPS: u64 = 150; // 1.5%
@@ -50,12 +50,24 @@ pub mod launchpad {
         auction.bump = ctx.bumps.auction;
 
         msg!("Auction initialized");
+        emit!(AuctionInitialized {
+            auction: ctx.accounts.auction.key(),
+            authority: ctx.accounts.authority.key(),
+            project_mint: ctx.accounts.project_mint.key(),
+            end_time,
+        });
         Ok(())
     }
 
-    /// Initialize the vaults for the auction
-    pub fn initialize_vaults(_ctx: Context<InitializeVaults>) -> Result<()> {
-        msg!("Auction vaults initialized");
+    /// Initialize the Payment Vault
+    pub fn initialize_payment_vault(_ctx: Context<InitializePaymentVault>) -> Result<()> {
+        msg!("Payment vault initialized");
+        Ok(())
+    }
+
+    /// Initialize the Project Vault
+    pub fn initialize_project_vault(_ctx: Context<InitializeProjectVault>) -> Result<()> {
+        msg!("Project vault initialized");
         Ok(())
     }
 
@@ -82,15 +94,24 @@ pub mod launchpad {
     /// Place a bid with ZK proof verification
     /// The proof verifies: User is in whitelist (Merkle membership) without revealing identity
     /// The nullifier prevents double-bidding
+    /// Place a bid with ZK proof verification
+    /// The proof verifies: User is in whitelist (Merkle membership) without revealing identity
+    /// The nullifier prevents double-bidding
+    /// RELAYER UPDATE: Accepts separate recipient for anonymous bidding
     pub fn place_bid(
         ctx: Context<PlaceBid>,
         proof: Vec<u8>,           // Noir proof bytes
         nullifier: [u8; 32],      // Unique identifier from ZK circuit
         bid_commitment: [u8; 32], // Hash(amount + salt)
         deposit_amount: u64,      // Amount of cJitoSOL to lock (obfuscated)
+        recipient: Option<Pubkey>, // [NEW] Optional recipient (if different from signer)
     ) -> Result<()> {
         let auction = &mut ctx.accounts.auction;
+        let bidder_key = ctx.accounts.bidder.key();
         
+        // Determine Recipient (Default to bidder if not provided)
+        let final_recipient = recipient.unwrap_or(bidder_key);
+
         // Check auction is active
         require!(auction.status == AuctionStatus::Active, ErrorCode::AuctionNotActive);
         
@@ -98,15 +119,17 @@ pub mod launchpad {
         let clock = Clock::get()?;
         require!(clock.unix_timestamp < auction.end_time, ErrorCode::AuctionEnded);
 
-        // V2: On-Chain Verification
-        // The proof verifies membership in the Merkle tree
-        // Public inputs: [merkle_root, auction_id, nullifier]
-        // V2: Construct real public inputs for the verifier
-        // Public inputs: [merkle_root (32 bytes), auction_key (32 bytes), nullifier (32 bytes)]
-        let mut public_inputs = Vec::with_capacity(96);
+        // V2: On-Chain Verification & Binding
+        // Public inputs: [merkle_root (32), auction_key (32), nullifier (32), recipient_hash (32)]
+        // We BIND the recipient to the proof to prevent front-running.
+        let mut public_inputs = Vec::with_capacity(128);
         public_inputs.extend_from_slice(&auction.merkle_root);
         public_inputs.extend_from_slice(auction.key().as_ref());
         public_inputs.extend_from_slice(&nullifier);
+        
+        // Hash the recipient to bind it (Standardize input to circuit)
+        let recipient_hash = anchor_lang::solana_program::keccak::hash(final_recipient.as_ref());
+        public_inputs.extend_from_slice(recipient_hash.0.as_ref()); 
         
         let cpi_program = ctx.accounts.verifier_program.to_account_info();
         let cpi_accounts = VerifyProof {
@@ -114,15 +137,10 @@ pub mod launchpad {
         };
         let cpi_ctx = CpiContext::new(cpi_program, cpi_accounts);
         verifier::cpi::verify_proof(cpi_ctx, proof, public_inputs)?;
-        //
-        msg!("V2: Proof verified on-chain");
 
         // Validate deposit amount
         require!(deposit_amount > 0, ErrorCode::ZeroDeposit);
         require!(deposit_amount >= 1_000_000, ErrorCode::DepositTooSmall); // Min 0.001 cJitoSOL
-
-        // Check nullifier hasn't been used (stored in user_bid account creation)
-        // The PDA derivation with nullifier enforces uniqueness
 
         // Transfer cJitoSOL from user to auction vault
         let transfer_ctx = CpiContext::new(
@@ -139,7 +157,8 @@ pub mod launchpad {
         // Create bid record
         let user_bid = &mut ctx.accounts.user_bid;
         user_bid.auction = auction.key();
-        user_bid.bidder = ctx.accounts.bidder.key();
+        user_bid.bidder = bidder_key; // Traceability: Who paid?
+        user_bid.recipient = final_recipient; // Ownership: Who claims?
         user_bid.nullifier = nullifier;
         user_bid.bid_commitment = bid_commitment;
         user_bid.deposit_amount = deposit_amount;
@@ -155,17 +174,23 @@ pub mod launchpad {
             .checked_add(deposit_amount)
             .ok_or(ErrorCode::MathOverflow)?;
 
-        msg!("Bid placed with nullifier: {:?}", &nullifier[..8]);
+        msg!("Bid placed for recipient: {}", final_recipient);
+        emit!(BidPlaced {
+            auction: auction.key(),
+            bidder: bidder_key,
+            amount: deposit_amount,
+        });
         Ok(())
     }
 
-    /// Reveal a bid (V1 Mainnet - user self-reveals)
+
+
     pub fn reveal_bid(
         ctx: Context<RevealBid>,
         bid_amount: u64,
         salt: [u8; 32],
     ) -> Result<()> {
-        let auction = &ctx.accounts.auction;
+        let auction = &mut ctx.accounts.auction;
         let user_bid = &mut ctx.accounts.user_bid;
 
         // Check auction is in reveal phase
@@ -203,11 +228,18 @@ pub mod launchpad {
         user_bid.revealed_amount = bid_amount;
         user_bid.is_revealed = true;
 
-        // Update auction revealed count
-        let auction = &mut ctx.accounts.auction;
+        // Accumulator Pattern: Update auction totals trustlessly
         auction.total_revealed += 1;
+        auction.total_raised = auction.total_raised
+            .checked_add(bid_amount)
+            .ok_or(ErrorCode::MathOverflow)?;
 
-        msg!("Bid revealed: {} cJitoSOL", bid_amount);
+        msg!("Bid revealed: {} cJitoSOL. Total Raised: {}", bid_amount, auction.total_raised);
+        emit!(BidRevealed {
+            auction: auction.key(),
+            bidder: ctx.accounts.bidder.key(),
+            amount: bid_amount,
+        });
         Ok(())
     }
 
@@ -226,11 +258,10 @@ pub mod launchpad {
         Ok(())
     }
 
-    /// Settle auction - distribute tokens and refunds
+    /// Settle auction - Trustless Version
+    /// No manual inputs required. Logic is derived from on-chain state.
     pub fn settle_auction(
         ctx: Context<SettleAuction>,
-        clearing_price: u64,
-        total_raised: u64,
     ) -> Result<()> {
         let auction = &mut ctx.accounts.auction;
         
@@ -238,6 +269,24 @@ pub mod launchpad {
             auction.status == AuctionStatus::Revealing,
             ErrorCode::InvalidAuctionStatus
         );
+
+        // Calculate Clearing Price (SOL per Token) implies Market Cap / Supply
+        // But for Pro-Rata, we care about Allocation Ratio.
+        // Price = Total Raised / Token Supply
+        // We store this for analytics, but calculation happens in `claim`.
+        let total_raised = auction.total_raised;
+        let token_supply = auction.token_supply;
+
+        // Avoid division by zero
+        let clearing_price = if token_supply > 0 {
+             total_raised
+                .checked_mul(1_000_000_000) // Scale for precision (9 decimals)
+                .ok_or(ErrorCode::MathOverflow)?
+                .checked_div(token_supply)
+                .ok_or(ErrorCode::MathOverflow)?
+        } else {
+            0
+        };
 
         // Calculate Protocol Fee (1.5% of total raised)
         let fee_amount = total_raised
@@ -273,15 +322,20 @@ pub mod launchpad {
             msg!("Protocol fee deducted: {} cJitoSOL", fee_amount);
         }
 
-        auction.clearing_price = clearing_price;
-        auction.total_raised = total_raised;
+        auction.clearing_price = clearing_price; // Stored as scaled value or raw ratio helper
         auction.status = AuctionStatus::Settled;
 
-        msg!("Auction settled at clearing price: {}", clearing_price);
+        msg!("Auction settled safely. Total Raised: {}, Implied Price: {}", total_raised, clearing_price);
+        emit!(AuctionSettled {
+            auction: ctx.accounts.auction.key(),
+            clearing_price,
+            total_raised,
+        });
         Ok(())
     }
 
-    /// Claim tokens (for winners) or refund (for losers)
+    /// Claim tokens - Pro-Rata Logic
+    /// Users get: (MyBid / TotalRaised) * TotalSupply
     pub fn claim(ctx: Context<Claim>) -> Result<()> {
         let auction = &ctx.accounts.auction;
         let user_bid = &mut ctx.accounts.user_bid;
@@ -297,29 +351,22 @@ pub mod launchpad {
         ];
         let signer_seeds = &[&seeds[..]];
 
-        if user_bid.revealed_amount >= auction.clearing_price && auction.clearing_price > 0 {
-            // Winner: Send project tokens, refund excess payment
-            user_bid.is_winner = true;
-            
-            // Calculate token allocation:
-            // Each winner gets: (token_supply / num_winners)
-            // num_winners = total_raised / clearing_price
-            // so tokens = token_supply * clearing_price / total_raised
-            // Perform calculation in u128 to avoid overflow
-            // tokens = (token_supply as u128 * clearing_price as u128) / total_raised as u128
-            let numerator = (auction.token_supply as u128)
-                .checked_mul(auction.clearing_price as u128)
-                .ok_or(ErrorCode::MathOverflow)?;
-            
-            let tokens_u128 = numerator
-                .checked_div(auction.total_raised.max(1) as u128)
-                .ok_or(ErrorCode::MathOverflow)?;
-                
-            let tokens_to_send = u64::try_from(tokens_u128).map_err(|_| ErrorCode::MathOverflow)?;
-            
-            // Ensure we don't send more than available in vault
-            let tokens_to_send = tokens_to_send.min(ctx.accounts.project_vault.amount);
-            
+        // 1. Calculate Token Allocation (Pro-Rata)
+        // Tokens = (UserRevealed * TotalSupply) / TotalRaised
+        let tokens_to_send = if auction.total_raised > 0 {
+             (user_bid.revealed_amount as u128)
+                .checked_mul(auction.token_supply as u128)
+                .ok_or(ErrorCode::MathOverflow)?
+                .checked_div(auction.total_raised as u128)
+                .ok_or(ErrorCode::MathOverflow)? as u64
+        } else {
+            0 // Should not happen if auction settled with bids
+        };
+
+        // Cap at vault amount (dust safety)
+        let tokens_to_send = tokens_to_send.min(ctx.accounts.project_vault.amount);
+
+        if tokens_to_send > 0 {
             let project_transfer_ctx = CpiContext::new_with_signer(
                 ctx.accounts.token_program.to_account_info(),
                 TransferChecked {
@@ -335,33 +382,16 @@ pub mod launchpad {
                 tokens_to_send,
                 ctx.accounts.project_mint.decimals,
             )?;
+        }
 
-            // Refund excess: deposit_amount - clearing_price
-            let refund_amount = user_bid.deposit_amount
-                .checked_sub(auction.clearing_price)
-                .unwrap_or(0);
-            
-            if refund_amount > 0 {
-                let refund_ctx = CpiContext::new_with_signer(
-                    ctx.accounts.token_program.to_account_info(),
-                    TransferChecked {
-                        from: ctx.accounts.payment_vault.to_account_info(),
-                        mint: ctx.accounts.payment_mint.to_account_info(),
-                        to: ctx.accounts.user_payment_account.to_account_info(),
-                        authority: ctx.accounts.auction.to_account_info(),
-                    },
-                    signer_seeds,
-                );
-                token_2022::transfer_checked(
-                    refund_ctx,
-                    refund_amount,
-                    ctx.accounts.payment_mint.decimals,
-                )?;
-            }
-            
-            msg!("Winner! Received {} tokens, refunded {} cJitoSOL", tokens_to_send, refund_amount);
-        } else {
-            // Loser: Full refund
+        // 2. Refund Unused Deposit
+        // Refund = DepositAmount - RevealedAmount
+        // (In Pro-Rata, we take 100% of the RevealedAmount)
+        let refund_amount = user_bid.deposit_amount
+            .checked_sub(user_bid.revealed_amount)
+            .unwrap_or(0);
+        
+        if refund_amount > 0 {
             let refund_ctx = CpiContext::new_with_signer(
                 ctx.accounts.token_program.to_account_info(),
                 TransferChecked {
@@ -374,12 +404,12 @@ pub mod launchpad {
             );
             token_2022::transfer_checked(
                 refund_ctx,
-                user_bid.deposit_amount,
+                refund_amount,
                 ctx.accounts.payment_mint.decimals,
             )?;
-
-            msg!("Refunded {} cJitoSOL", user_bid.deposit_amount);
         }
+
+        msg!("Claimed: {} Tokens. Refunded: {} cJitoSOL", tokens_to_send, refund_amount);
 
         // Mark as claimed
         user_bid.is_claimed = true;
@@ -418,7 +448,7 @@ pub struct InitializeAuction<'info> {
 }
 
 #[derive(Accounts)]
-pub struct InitializeVaults<'info> {
+pub struct InitializePaymentVault<'info> {
     #[account(mut)]
     pub authority: Signer<'info>,
 
@@ -430,23 +460,48 @@ pub struct InitializeVaults<'info> {
     )]
     pub auction: Box<Account<'info, Auction>>,
 
-    pub payment_mint: Box<InterfaceAccount<'info, Mint>>,
+    /// The project mint helps derive the auction PDA key
     pub project_mint: Box<InterfaceAccount<'info, Mint>>,
+    
+    pub payment_mint: Box<InterfaceAccount<'info, Mint>>,
 
-    /// Vault to hold payment tokens
+    /// Vault to hold payment tokens (PDA)
     #[account(
         init,
         payer = authority,
+        seeds = [b"payment_vault", auction.key().as_ref()],
+        bump,
         token::mint = payment_mint,
         token::authority = auction,
         token::token_program = token_program,
     )]
     pub payment_vault: Box<InterfaceAccount<'info, TokenAccount>>,
+    
+    pub token_program: Program<'info, Token2022>,
+    pub system_program: Program<'info, System>,
+}
 
-    /// Vault to hold project tokens
+#[derive(Accounts)]
+pub struct InitializeProjectVault<'info> {
+    #[account(mut)]
+    pub authority: Signer<'info>,
+
+    #[account(
+        mut,
+        seeds = [b"auction", project_mint.key().as_ref()],
+        bump = auction.bump,
+        constraint = auction.authority == authority.key(),
+    )]
+    pub auction: Box<Account<'info, Auction>>,
+
+    pub project_mint: Box<InterfaceAccount<'info, Mint>>,
+
+    /// Vault to hold project tokens (PDA)
     #[account(
         init,
         payer = authority,
+        seeds = [b"project_vault", auction.key().as_ref()],
+        bump,
         token::mint = project_mint,
         token::authority = auction,
         token::token_program = token_program,
@@ -474,6 +529,8 @@ pub struct FundAuction<'info> {
 
     #[account(
         mut,
+        seeds = [b"project_vault", auction.key().as_ref()],
+        bump,
         token::mint = project_mint,
         token::authority = auction,
     )]
@@ -509,6 +566,8 @@ pub struct PlaceBid<'info> {
 
     #[account(
         mut,
+        seeds = [b"payment_vault", auction.key().as_ref()],
+        bump,
         token::mint = payment_mint,
         token::authority = auction,
     )]
@@ -592,6 +651,8 @@ pub struct SettleAuction<'info> {
     pub payment_mint: InterfaceAccount<'info, Mint>,
     #[account(
         mut,
+        seeds = [b"payment_vault", auction.key().as_ref()],
+        bump,
         token::mint = payment_mint,
         token::authority = auction,
     )]
@@ -603,7 +664,7 @@ pub struct SettleAuction<'info> {
 #[derive(Accounts)]
 pub struct Claim<'info> {
     #[account(mut)]
-    pub bidder: Signer<'info>,
+    pub authority: Signer<'info>, // Can be Recipient (New) or Bidder (Legacy behavior if same)
 
     #[account(
         seeds = [b"auction", auction.project_mint.as_ref()],
@@ -617,6 +678,8 @@ pub struct Claim<'info> {
 
     #[account(
         mut,
+        seeds = [b"payment_vault", auction.key().as_ref()],
+        bump,
         token::mint = payment_mint,
         token::authority = auction,
     )]
@@ -624,6 +687,8 @@ pub struct Claim<'info> {
 
     #[account(
         mut,
+        seeds = [b"project_vault", auction.key().as_ref()],
+        bump,
         token::mint = project_mint,
         token::authority = auction,
     )]
@@ -632,14 +697,14 @@ pub struct Claim<'info> {
     #[account(
         mut,
         token::mint = payment_mint,
-        token::authority = bidder,
+        token::authority = authority,
     )]
     pub user_payment_account: Box<InterfaceAccount<'info, TokenAccount>>,
 
     #[account(
         mut,
         token::mint = project_mint,
-        token::authority = bidder,
+        token::authority = authority,
     )]
     pub user_project_account: Box<InterfaceAccount<'info, TokenAccount>>,
 
@@ -647,8 +712,8 @@ pub struct Claim<'info> {
         mut,
         seeds = [b"bid", auction.key().as_ref(), user_bid.nullifier.as_ref()],
         bump = user_bid.bump,
-        constraint = user_bid.bidder == bidder.key(),
-        close = bidder,
+        constraint = user_bid.recipient == authority.key(), // [CRITICAL] Only recipient can claim
+        close = authority, // Rent goes to the Recipient (Signer)
     )]
     pub user_bid: Box<Account<'info, UserBid>>,
 
@@ -682,7 +747,8 @@ pub struct Auction {
 #[derive(InitSpace)]
 pub struct UserBid {
     pub auction: Pubkey,
-    pub bidder: Pubkey,
+    pub bidder: Pubkey,      // The original Payer (for audit/trace if needed)
+    pub recipient: Pubkey,   // The Owner (Authorized to Claim) [NEW]
     pub nullifier: [u8; 32],       // ZK identity (from Noir proof)
     pub bid_commitment: [u8; 32],  // Hash(amount + salt)
     pub deposit_amount: u64,       // Obfuscated deposit
@@ -727,4 +793,39 @@ pub enum ErrorCode {
     MathOverflow,
     #[msg("Invalid payment mint")]
     InvalidPaymentMint,
+    #[msg("Invalid audit status")]
+    InvalidAuditStatus,
+}
+
+// ============================================================================
+// EVENTS
+// ============================================================================
+
+#[event]
+pub struct AuctionInitialized {
+    pub auction: Pubkey,
+    pub authority: Pubkey,
+    pub project_mint: Pubkey,
+    pub end_time: i64,
+}
+
+#[event]
+pub struct BidPlaced {
+    pub auction: Pubkey,
+    pub bidder: Pubkey,
+    pub amount: u64,
+}
+
+#[event]
+pub struct BidRevealed {
+    pub auction: Pubkey,
+    pub bidder: Pubkey,
+    pub amount: u64,
+}
+
+#[event]
+pub struct AuctionSettled {
+    pub auction: Pubkey,
+    pub clearing_price: u64,
+    pub total_raised: u64,
 }

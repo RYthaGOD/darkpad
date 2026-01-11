@@ -151,8 +151,15 @@ describe("launchpad", () => {
             program.programId
         );
 
-        const paymentVaultKeypair = Keypair.generate();
-        const projectVaultKeypair = Keypair.generate();
+        // Derive Vault PDAs
+        [paymentVault] = PublicKey.findProgramAddressSync(
+            [Buffer.from("payment_vault"), auction.toBuffer()],
+            program.programId
+        );
+        [projectVault] = PublicKey.findProgramAddressSync(
+            [Buffer.from("project_vault"), auction.toBuffer()],
+            program.programId
+        );
 
         const endTime = new anchor.BN(Math.floor(Date.now() / 1000) + 3); // 3 seconds from now
         const tokenSupply = new anchor.BN(100000 * LAMPORTS_PER_SOL);
@@ -181,23 +188,34 @@ describe("launchpad", () => {
                 auction: auction,
                 tokenProgram: TOKEN_2022_PROGRAM_ID,
                 systemProgram: SystemProgram.programId,
-            })
+            } as any)
             .rpc();
 
-        // Initialize Vaults
+        // Initialize Payment Vault
         await program.methods
-            .initializeVaults()
+            .initializePaymentVault()
             .accounts({
                 authority: authority.publicKey,
                 auction: auction,
+                projectMint: projectMint, // Needed for auction seeds
                 paymentMint: paymentMint,
-                projectMint: projectMint,
-                paymentVault: paymentVaultKeypair.publicKey,
-                projectVault: projectVaultKeypair.publicKey,
+                paymentVault: paymentVault,
                 tokenProgram: TOKEN_2022_PROGRAM_ID,
                 systemProgram: SystemProgram.programId,
-            })
-            .signers([authority.payer, paymentVaultKeypair, projectVaultKeypair])
+            } as any)
+            .rpc();
+
+        // Initialize Project Vault
+        await program.methods
+            .initializeProjectVault()
+            .accounts({
+                authority: authority.publicKey,
+                auction: auction,
+                projectMint: projectMint,
+                projectVault: projectVault,
+                tokenProgram: TOKEN_2022_PROGRAM_ID,
+                systemProgram: SystemProgram.programId,
+            } as any)
             .rpc();
 
         // Fund the auction
@@ -208,21 +226,20 @@ describe("launchpad", () => {
                 authority: authority.publicKey,
                 auction: auction,
                 projectMint: projectMint,
-                projectVault: projectVaultKeypair.publicKey,
+                projectVault: projectVault,
                 authorityProjectAccount: authorityProjectAccount.address,
                 tokenProgram: TOKEN_2022_PROGRAM_ID,
-            })
-            .signers([authority.payer])
+            } as any)
+            .signers([(authority as anchor.Wallet).payer])
             .rpc();
 
         const auctionAccount = await program.account.auction.fetch(auction);
         expect(auctionAccount.authority.toBase58()).to.equal(authority.publicKey.toBase58());
         expect(auctionAccount.totalBids.toNumber()).to.equal(0);
 
-        paymentVault = paymentVaultKeypair.publicKey;
-        projectVault = projectVaultKeypair.publicKey;
-
         console.log("Auction:", auction.toBase58());
+        console.log("Payment Vault:", paymentVault.toBase58());
+        console.log("Project Vault:", projectVault.toBase58());
     });
 
     it("Places a bid with ZK proof", async () => {
@@ -241,7 +258,8 @@ describe("launchpad", () => {
                 Buffer.from(mockProof),
                 Array.from(nullifier),
                 Array.from(bidCommitment),
-                depositAmount
+                depositAmount,
+                null // Recipient (optional)
             )
             .accounts({
                 bidder: bidder.publicKey,
@@ -253,7 +271,7 @@ describe("launchpad", () => {
                 verifierProgram: new PublicKey("EL25TkoP8zcMcThDRn6ufsyN8HPjgxs6LPferAmoSURH"),
                 tokenProgram: TOKEN_2022_PROGRAM_ID,
                 systemProgram: SystemProgram.programId,
-            })
+            } as any)
             .signers([bidder])
             .rpc();
 
@@ -274,7 +292,7 @@ describe("launchpad", () => {
                 bidder: bidder.publicKey,
                 auction: auction,
                 userBid: userBid,
-            })
+            } as any)
             .signers([bidder])
             .rpc();
 
@@ -300,7 +318,7 @@ describe("launchpad", () => {
                 .accounts({
                     authority: authority.publicKey,
                     auction: auction,
-                })
+                } as any)
                 .rpc();
 
             const auctionAccount = await program.account.auction.fetch(auction);
@@ -343,7 +361,7 @@ describe("launchpad", () => {
                     paymentMint: paymentMint,
                     paymentVault: paymentVault,
                     tokenProgram: TOKEN_2022_PROGRAM_ID,
-                })
+                } as any)
                 .rpc();
 
             // Verify fee deduction
@@ -395,7 +413,7 @@ describe("launchpad", () => {
                     userProjectAccount: bidderProjectAccount.address,
                     userBid: userBid,
                     tokenProgram: TOKEN_2022_PROGRAM_ID,
-                })
+                } as any)
                 .signers([bidder])
                 .rpc();
 

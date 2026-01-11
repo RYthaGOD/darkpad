@@ -15,6 +15,8 @@ import {
 import {
     createMint,
     getOrCreateAssociatedTokenAccount,
+    createAssociatedTokenAccount,
+    getAssociatedTokenAddress,
     mintTo,
     TOKEN_2022_PROGRAM_ID,
     getAccount,
@@ -99,7 +101,7 @@ describe("shield", () => {
                 jitoMint: jitoMint,
                 vaultState: vaultState,
                 systemProgram: SystemProgram.programId,
-            })
+            } as any)
             .rpc();
 
         await program.methods
@@ -112,7 +114,7 @@ describe("shield", () => {
                 vault: vaultKeypair.publicKey,
                 tokenProgram: TOKEN_2022_PROGRAM_ID,
                 systemProgram: SystemProgram.programId,
-            })
+            } as any)
             .signers([cjitoMintKeypair, vaultKeypair])
             .rpc();
 
@@ -132,18 +134,33 @@ describe("shield", () => {
     });
 
     it("Deposits JitoSOL and receives cJitoSOL", async () => {
-        // Create user's cJitoSOL account
-        const userCjitoAccountInfo = await getOrCreateAssociatedTokenAccount(
-            provider.connection,
-            (provider.wallet as anchor.Wallet).payer,
-            cjitoMint,
-            authority.publicKey,
-            false,
-            "confirmed",
-            { commitment: "confirmed" },
-            TOKEN_2022_PROGRAM_ID
-        );
-        userCjitoAccount = userCjitoAccountInfo.address;
+        // Create user's cJitoSOL account explicitly
+        // Create user's cJitoSOL account explicitly
+        console.log("Creating cJitoSOL ATA for", authority.publicKey.toBase58(), "mint", cjitoMint.toBase58());
+        try {
+            userCjitoAccount = await createAssociatedTokenAccount(
+                provider.connection,
+                (provider.wallet as anchor.Wallet).payer,
+                cjitoMint,
+                authority.publicKey,
+                { commitment: "confirmed" },
+                TOKEN_2022_PROGRAM_ID
+            );
+            console.log("Created cJitoSOL ATA:", userCjitoAccount.toBase58());
+        } catch (e: any) {
+            console.log("Creation failed:", e.message);
+            if (e.message.includes("already in use")) {
+                userCjitoAccount = await getAssociatedTokenAddress(
+                    cjitoMint,
+                    authority.publicKey,
+                    false,
+                    TOKEN_2022_PROGRAM_ID
+                );
+                console.log("Using existing cJitoSOL ATA:", userCjitoAccount.toBase58());
+            } else {
+                throw e;
+            }
+        }
 
         const depositAmount = new anchor.BN(100 * LAMPORTS_PER_SOL);
 
@@ -158,10 +175,12 @@ describe("shield", () => {
                 userJitoAccount: userJitoAccount,
                 userCjitoAccount: userCjitoAccount,
                 tokenProgram: TOKEN_2022_PROGRAM_ID,
-            })
+            } as any)
             .rpc();
 
         // Check balances
+        // Check balances
+        await new Promise(resolve => setTimeout(resolve, 1000));
         const userCjitoBalance = await getAccount(
             provider.connection,
             userCjitoAccount,
@@ -195,10 +214,12 @@ describe("shield", () => {
                 userJitoAccount: userJitoAccount,
                 userCjitoAccount: userCjitoAccount,
                 tokenProgram: TOKEN_2022_PROGRAM_ID,
-            })
+            } as any)
             .rpc();
 
         // Check balances
+        // Check balances
+        await new Promise(resolve => setTimeout(resolve, 1000));
         const userCjitoBalance = await getAccount(
             provider.connection,
             userCjitoAccount,
